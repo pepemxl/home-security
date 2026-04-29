@@ -15,19 +15,18 @@ Each step is best-effort: if a CLI tool isn't installed we skip it.
 from __future__ import annotations
 
 import re
-import shutil
 import socket
 import ssl
-import subprocess
-import sys
 from dataclasses import dataclass, field, asdict
 
-_IS_WINDOWS = sys.platform.startswith("win")
-# MAC pattern accepts both ":" (Linux/macOS) and "-" (Windows arp -a).
-_MAC_RE = r"([0-9a-f]{2}[:-]){5}[0-9a-f]{2}"
-
+from . import _proc
 from . import ports as ports_mod
 from . import vendor
+
+# Re-exported for tests / callers that already import these from device.
+_IS_WINDOWS = _proc.IS_WINDOWS
+_MAC_RE = _proc.MAC_RE
+_normalize_mac = _proc.normalize_mac
 
 
 @dataclass
@@ -55,47 +54,8 @@ class DeviceProfile:
 
 # ---------- low-level helpers ----------
 
-def _run(cmd: list[str], timeout: float = 5.0) -> str:
-    if not shutil.which(cmd[0]):
-        return ""
-    try:
-        return subprocess.run(
-            cmd, capture_output=True, text=True, check=False, timeout=timeout
-        ).stdout
-    except subprocess.TimeoutExpired:
-        return ""
-
-
-def _ping(ip: str, count: int = 1, timeout_s: int = 1) -> tuple[bool, float | None, int | None]:
-    """Return (alive, rtt_ms, ttl). Works on Linux/macOS (iputils) and Windows."""
-    if shutil.which("ping") is None:
-        return (False, None, None)
-    if _IS_WINDOWS:
-        # Windows: -n count, -w timeout in ms
-        cmd = ["ping", "-n", str(count), "-w", str(timeout_s * 1000), ip]
-    else:
-        cmd = ["ping", "-c", str(count), "-W", str(timeout_s), ip]
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, check=False,
-            timeout=count * (timeout_s + 1),
-        )
-    except subprocess.TimeoutExpired:
-        return (False, None, None)
-
-    out = proc.stdout
-    # Windows returns 0 only when at least one reply was received.
-    # Linux/macOS ditto. So returncode is the authoritative signal.
-    alive = proc.returncode == 0
-    rtt = None
-    m = re.search(r"time[=<]([\d.]+)\s*ms", out)
-    if m:
-        rtt = float(m.group(1))
-    ttl = None
-    m = re.search(r"\bttl[=:](\d+)", out, re.IGNORECASE)
-    if m:
-        ttl = int(m.group(1))
-    return (alive, rtt, ttl)
+_run = _proc.run
+_ping = _proc.ping
 
 
 def _guess_os_from_ttl(ttl: int | None) -> str | None:
@@ -115,31 +75,7 @@ def _guess_os_from_ttl(ttl: int | None) -> str | None:
     return None
 
 
-def _normalize_mac(mac: str) -> str:
-    return mac.lower().replace("-", ":")
-
-
-def _arp_for(ip: str) -> str | None:
-    """Try every ARP-querying tool we know of. First hit wins."""
-    # Linux modern: ip neigh show <ip>
-    out = _run(["ip", "neigh", "show", ip])
-    m = re.search(rf"lladdr\s+({_MAC_RE})", out, re.IGNORECASE)
-    if m:
-        return _normalize_mac(m.group(1))
-    # Linux/macOS BSD: arp -an <ip>
-    out = _run(["arp", "-an", ip])
-    m = re.search(rf"({_MAC_RE})", out, re.IGNORECASE)
-    if m:
-        return _normalize_mac(m.group(1))
-    # Windows: arp -a <ip>  (output uses dash-separated MACs)
-    out = _run(["arp", "-a", ip])
-    # Filter to lines that mention the IP so we don't grab a neighbour by accident.
-    for line in out.splitlines():
-        if ip in line:
-            m = re.search(rf"({_MAC_RE})", line, re.IGNORECASE)
-            if m:
-                return _normalize_mac(m.group(1))
-    return None
+_arp_for = _proc.arp_for_ip
 
 
 def _reverse_dns(ip: str, timeout: float = 0.8) -> str | None:
