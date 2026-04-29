@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m home_security vendor lookup B8:27:EB:11:22:33)",
+      "Bash(python3 -m home_security inventory list)"
+    ]
+  }
+}

@@ -1,0 +1,108 @@
+# Small bundled OUI subset. Run `python -m home_security.vendor refresh`
+# to fetch the full IEEE database into oui-full.csv.
+# Format: OUI (no separators, uppercase), Vendor
+000C29,VMware
+001C42,Parallels
+080027,VirtualBox (Oracle)
+0050F2,Microsoft
+3417EB,Dell
+B827EB,Raspberry Pi Foundation
+DCA632,Raspberry Pi Trading
+E45F01,Raspberry Pi Trading
+D83ADD,Raspberry Pi Trading
+B8278B,Raspberry Pi Trading
+F0B61E,Apple
+A4C361,Apple
+3C2EFF,Apple
+BC926B,Apple
+F02475,Apple
+D49A20,Apple
+A45E60,Apple
+A8667F,Apple
+F4F5D8,Google
+3C5AB4,Google
+F4F5E8,Google
+DA6A51,Google
+54600D,Amazon Technologies
+F0D2F1,Amazon Technologies
+44650D,Amazon Technologies
+74C246,Amazon Technologies
+40B4CD,Amazon Technologies
+1056CA,Samsung Electronics
+24DBED,Samsung Electronics
+30CDA7,Samsung Electronics
+38ECE4,Samsung Electronics
+402BA1,Samsung Electronics
+D0176A,Samsung Electronics
+54271E,Belkin International
+944452,Belkin International
+000DB9,PC Engines
+001E58,D-Link
+0014BF,Cisco-Linksys
+001D7E,Cisco-Linksys
+682737,Cisco-Linksys
+001F33,Netgear
+30469A,Netgear
+744401,Netgear
+A040A0,Netgear
+9C3DCF,Netgear
+0024B2,Netgear
+00146C,Netgear
+14CC20,TP-Link
+1C61B4,TP-Link
+50C7BF,TP-Link
+6C5AB0,TP-Link
+A42BB0,TP-Link
+B0487A,TP-Link
+F4EC38,TP-Link
+A0F3C1,TP-Link
+98DAC4,TP-Link
+50D4F7,TP-Link
+4C5499,Microsoft (Xbox)
+7C1E52,Microsoft
+D89EF3,Microsoft
+00155D,Microsoft (Hyper-V)
+001DD8,Microsoft
+0017FA,Microsoft
+6C40089,Microsoft
+000FB5,Netgear
+00904C,Epigram
+70886B,Hikvision
+44A642,Hikvision
+4C2C80,Xiaomi
+F8A45F,Xiaomi
+F0B429,Xiaomi
+286C07,Xiaomi
+8CBEBE,Xiaomi
+40A36B,Xiaomi
+701A04,Liteon (laptop NICs)
+4C3488,LG Electronics
+00E091,LG Electronics
+2C598A,LG Electronics
+B8AD3E,Cisco
+F4CFE2,Cisco
+00120F,Cisco
+00146A,Cisco
+0050BA,D-Link
+1CAFF7,D-Link
+B8A386,D-Link
+84C9B2,D-Link
+D8FEE3,D-Link
+74DA38,Edimax
+80EE73,Shenzhen Bilian (smart plugs / IoT)
+EC3D98,Realtek
+60A4D0,Realtek
+3C8CF8,ESP32 / Espressif
+8CAAB5,Espressif
+EC62609,Espressif
+24B2DE,Espressif
+A4CF12,Espressif
+FCF5C4,Espressif
+807D3A,Espressif
+24A160,Espressif
+30AEA4,Espressif
+98F4AB,Espressif
+240AC4,Espressif
+DCA632,Raspberry Pi Trading
+E45F01,Raspberry Pi Trading
+2CCF67,Raspberry Pi Trading
