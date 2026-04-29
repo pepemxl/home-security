@@ -7,6 +7,7 @@ import json
 import sys
 from typing import Sequence
 
+from . import device as device_mod
 from . import inventory as inv_mod
 from . import net, ports, scanner, vendor
 
@@ -129,6 +130,21 @@ def cmd_ports(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inspect(args: argparse.Namespace) -> int:
+    profile = device_mod.inspect(
+        args.ip,
+        do_ping=not args.no_ping,
+        do_ports=not args.no_ports,
+        do_banners=not args.no_banners,
+        port_timeout=args.timeout,
+    )
+    if args.json:
+        print(json.dumps(profile.to_dict(), indent=2))
+    else:
+        print(device_mod.render(profile))
+    return 0 if profile.reachable or profile.mac else 1
+
+
 def cmd_vendor(args: argparse.Namespace) -> int:
     if args.action == "refresh":
         path = vendor.refresh()
@@ -174,6 +190,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("ip")
     s.add_argument("--timeout", type=float, default=0.4)
     s.set_defaults(func=cmd_ports)
+
+    s = sub.add_parser(
+        "inspect",
+        help="Deep inspection of one host: ping, MAC, vendor, names, ports, banners.",
+    )
+    s.add_argument("ip")
+    s.add_argument("--no-ping", action="store_true")
+    s.add_argument("--no-ports", action="store_true")
+    s.add_argument("--no-banners", action="store_true")
+    s.add_argument("--timeout", type=float, default=0.4, help="Per-port TCP timeout (s).")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_inspect)
 
     s = sub.add_parser("vendor", help="Vendor / OUI utilities.")
     vsub = s.add_subparsers(dest="action", required=True)
