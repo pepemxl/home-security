@@ -30,4 +30,37 @@ def test_render_handles_unreachable():
     p = device.DeviceProfile(ip="192.168.100.5")
     out = device.render(p)
     assert "192.168.100.5" in out
-    assert "reachable : False" in out
+    assert "DOWN" in out
+
+
+def test_render_treats_open_ports_as_up_when_ping_fails():
+    p = device.DeviceProfile(ip="192.168.100.5", reachable=False, open_ports=[443, 554])
+    out = device.render(p)
+    assert "UP (icmp blocked" in out
+    assert "2 tcp port(s)" in out
+
+
+def test_device_type_hint_ip_camera():
+    p = device.DeviceProfile(ip="x", open_ports=[443, 554])
+    assert "camera" in (device._device_type_hint(p) or "").lower()
+
+
+def test_device_type_hint_printer():
+    p = device.DeviceProfile(ip="x", open_ports=[80, 9100])
+    assert "printer" in (device._device_type_hint(p) or "").lower()
+
+
+def test_device_type_hint_linux():
+    p = device.DeviceProfile(ip="x", open_ports=[22])
+    assert "linux" in (device._device_type_hint(p) or "").lower()
+
+
+def test_normalize_mac_handles_dash():
+    assert device._normalize_mac("AA-BB-CC-DD-EE-FF") == "aa:bb:cc:dd:ee:ff"
+
+
+def test_is_up_counts_open_ports():
+    p = device.DeviceProfile(ip="x", reachable=False, open_ports=[443])
+    assert device.is_up(p) is True
+    p2 = device.DeviceProfile(ip="x")
+    assert device.is_up(p2) is False

@@ -142,7 +142,7 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         print(json.dumps(profile.to_dict(), indent=2))
     else:
         print(device_mod.render(profile))
-    return 0 if profile.reachable or profile.mac else 1
+    return 0 if device_mod.is_up(profile) else 1
 
 
 def cmd_vendor(args: argparse.Namespace) -> int:

@@ -19,7 +19,12 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 from dataclasses import dataclass, field, asdict
+
+_IS_WINDOWS = sys.platform.startswith("win")
+# MAC pattern accepts both ":" (Linux/macOS) and "-" (Windows arp -a).
+_MAC_RE = r"([0-9a-f]{2}[:-]){5}[0-9a-f]{2}"
 
 from . import ports as ports_mod
 from . import vendor
@@ -39,6 +44,7 @@ class DeviceProfile:
     hostname_mdns: str | None = None
     open_ports: list[int] = field(default_factory=list)
     banners: dict[int, str] = field(default_factory=dict)
+    device_type_hint: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -61,11 +67,26 @@ def _run(cmd: list[str], timeout: float = 5.0) -> str:
 
 
 def _ping(ip: str, count: int = 1, timeout_s: int = 1) -> tuple[bool, float | None, int | None]:
-    """Return (alive, rtt_ms, ttl). Parses Linux iputils `ping` output."""
-    out = _run(["ping", "-c", str(count), "-W", str(timeout_s), ip], timeout=count * (timeout_s + 1))
-    if not out:
+    """Return (alive, rtt_ms, ttl). Works on Linux/macOS (iputils) and Windows."""
+    if shutil.which("ping") is None:
         return (False, None, None)
-    alive = "bytes from" in out
+    if _IS_WINDOWS:
+        # Windows: -n count, -w timeout in ms
+        cmd = ["ping", "-n", str(count), "-w", str(timeout_s * 1000), ip]
+    else:
+        cmd = ["ping", "-c", str(count), "-W", str(timeout_s), ip]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, check=False,
+            timeout=count * (timeout_s + 1),
+        )
+    except subprocess.TimeoutExpired:
+        return (False, None, None)
+
+    out = proc.stdout
+    # Windows returns 0 only when at least one reply was received.
+    # Linux/macOS ditto. So returncode is the authoritative signal.
+    alive = proc.returncode == 0
     rtt = None
     m = re.search(r"time[=<]([\d.]+)\s*ms", out)
     if m:
@@ -94,14 +115,31 @@ def _guess_os_from_ttl(ttl: int | None) -> str | None:
     return None
 
 
+def _normalize_mac(mac: str) -> str:
+    return mac.lower().replace("-", ":")
+
+
 def _arp_for(ip: str) -> str | None:
+    """Try every ARP-querying tool we know of. First hit wins."""
+    # Linux modern: ip neigh show <ip>
     out = _run(["ip", "neigh", "show", ip])
-    m = re.search(r"lladdr\s+(([0-9a-f]{2}:){5}[0-9a-f]{2})", out, re.IGNORECASE)
+    m = re.search(rf"lladdr\s+({_MAC_RE})", out, re.IGNORECASE)
     if m:
-        return m.group(1).lower()
+        return _normalize_mac(m.group(1))
+    # Linux/macOS BSD: arp -an <ip>
     out = _run(["arp", "-an", ip])
-    m = re.search(r"(([0-9a-f]{2}:){5}[0-9a-f]{2})", out, re.IGNORECASE)
-    return m.group(1).lower() if m else None
+    m = re.search(rf"({_MAC_RE})", out, re.IGNORECASE)
+    if m:
+        return _normalize_mac(m.group(1))
+    # Windows: arp -a <ip>  (output uses dash-separated MACs)
+    out = _run(["arp", "-a", ip])
+    # Filter to lines that mention the IP so we don't grab a neighbour by accident.
+    for line in out.splitlines():
+        if ip in line:
+            m = re.search(rf"({_MAC_RE})", line, re.IGNORECASE)
+            if m:
+                return _normalize_mac(m.group(1))
+    return None
 
 
 def _reverse_dns(ip: str, timeout: float = 0.8) -> str | None:
@@ -115,11 +153,19 @@ def _reverse_dns(ip: str, timeout: float = 0.8) -> str | None:
 
 
 def _netbios(ip: str) -> str | None:
-    """Run nmblookup -A <ip>, return the first <00> UNIQUE name (the host name)."""
+    """Resolve NetBIOS host name. Tries nmblookup (Linux) then nbtstat (Windows)."""
+    # Linux/macOS via Samba
     out = _run(["nmblookup", "-A", ip], timeout=4)
     for line in out.splitlines():
         # e.g.  MYPC            <00> -         B <ACTIVE>
         m = re.match(r"\s*(\S+)\s+<00>\s+-\s+B\s+<ACTIVE>", line)
+        if m:
+            return m.group(1)
+    # Windows native
+    out = _run(["nbtstat", "-A", ip], timeout=4)
+    for line in out.splitlines():
+        # e.g.  "    MYPC           <00>  UNIQUE      Registered"
+        m = re.match(r"\s*(\S+)\s+<00>\s+UNIQUE\s+Registered", line)
         if m:
             return m.group(1)
     return None
@@ -169,6 +215,30 @@ def _grab_banner(ip: str, port: int, timeout: float = 1.5) -> str | None:
     return None
 
 
+def _device_type_hint(profile: "DeviceProfile") -> str | None:
+    """Cheap fingerprint based on the open-port signature."""
+    p = set(profile.open_ports)
+    if 554 in p and (443 in p or 80 in p) and 22 not in p and 445 not in p:
+        return "likely IP camera / NVR (RTSP + HTTP(S) web UI)"
+    if 554 in p:
+        return "RTSP service present (camera/streamer)"
+    if 9100 in p:
+        return "likely network printer (raw-print 9100)"
+    if 3389 in p:
+        return "Windows host with RDP exposed"
+    if 5357 in p and 445 in p:
+        return "likely Windows host (WSD + SMB)"
+    if 445 in p and 139 in p and 22 not in p:
+        return "likely Windows / Samba file share"
+    if 22 in p and 445 not in p and 3389 not in p:
+        return "likely Linux/Unix host (SSH only)"
+    if 62078 in p:
+        return "likely Apple device (iPhone/iPad sync port)"
+    if 5000 in p or 1900 in p:
+        return "UPnP / DLNA service present"
+    return None
+
+
 # ---------- public API ----------
 
 def inspect(
@@ -205,17 +275,33 @@ def inspect(
             if b:
                 p.banners[pt] = b
 
+    p.device_type_hint = _device_type_hint(p)
     return p
+
+
+def is_up(profile: DeviceProfile) -> bool:
+    """A host is 'up' if anything responded — ICMP, an open port, or a fresh ARP entry."""
+    return bool(profile.reachable or profile.open_ports or profile.mac)
 
 
 def render(profile: DeviceProfile) -> str:
     """Human-readable multi-line report."""
+    if profile.reachable:
+        rtt = f"{profile.rtt_ms:.1f} ms" if profile.rtt_ms is not None else "?"
+        status = f"UP (icmp ok, {rtt}, ttl={profile.ttl})"
+    elif profile.open_ports:
+        status = f"UP (icmp blocked; {len(profile.open_ports)} tcp port(s) responding)"
+    elif profile.mac:
+        status = "UP (in ARP cache, but no ICMP / no listening common ports)"
+    else:
+        status = "DOWN or not on this LAN"
+
     lines = [
         f"Host: {profile.ip}",
-        f"  reachable : {profile.reachable}"
-        + (f"  ({profile.rtt_ms:.1f} ms, ttl={profile.ttl})" if profile.reachable else ""),
+        f"  status    : {status}",
         f"  os guess  : {profile.os_guess or 'unknown'}",
-        f"  mac       : {profile.mac or '(not in ARP cache — host may be silent or off-LAN)'}",
+        f"  type hint : {profile.device_type_hint or '-'}",
+        f"  mac       : {profile.mac or '(unknown — try running on the same LAN segment)'}",
         f"  vendor    : {profile.vendor or 'unknown'}",
         f"  dns name  : {profile.hostname_dns or '-'}",
         f"  netbios   : {profile.hostname_netbios or '-'}",
